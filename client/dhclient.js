@@ -2,36 +2,44 @@
 var crypto = require("crypto");
 var fs = require('fs')
 var http = require('http')
+var ursa = require('ursa')
 
+// Configuration variables
 var serverURL = 'localhost'
 
+// Variables definitions
 var alice
+var PRIVATE_KEY = fs.readFileSync(__dirname + "/keys/privateKey.pem");
+var SHARED_PRIME = fs.readFileSync(__dirname + "/keys/primesecret.key");
 
-//>>>> Generating a prime!!! put this into a separated file                                              
-//var server = crypto.createDiffieHellman(512,'hex');
-//var prime = server.getPrime('hex');
+var _id = ''
+var UUID = ''
 
-
-fs.readFile('keys/primesecret.key', 'utf8', function (err, data) {
-    if (err) {
-        return console.log(err);
-    }
-    var prime = data
-    AuthDH(prime, 'localhost')
-
-
+fs.readFile('keys/secrets.json', 'utf8', function (err, data) {
+    if (err) { return console.log(err);}
+    data = JSON.parse(data)
+    _id = data._id
+    UUID = data.UUID
 });
+
+AuthDH(SHARED_PRIME, 'localhost')
 
 // ALICE                                               
 function AuthDH(sharedPrime) {
-    alice = crypto.createDiffieHellman(sharedPrime, 'hex');
+    console.log("SharedPrime: " + sharedPrime)
+    alice = crypto.createDiffieHellman('a2328aa5fb2af7b16b80142fc0771bebd7f8aceb106d2adab4219be36729a5b005d3d1268417416c4834f22862cb7a21ea2397f1de743015bf1294a8163d57d3', 'hex');
     alice.generateKeys('hex');
-    var alicePub = alice.getPublicKey('hex');
+    var aliceDHPublicKey = alice.getPublicKey('hex');
+    
+    // cipher UUID with private key
    
-     HTTP_POST({"publicKey":alicePub, "signature":"SSSDDDDD"}, function(res){
-         // response received. calculating Session key and validating sender
-         var aliceBobSecret = alice.computeSecret(res.publicKey,'hex','hex');
-         console.log("SHARED SECRET: " + aliceBobSecret)
+     HTTP_POST({"_id":_id,"DHPK":aliceDHPublicKey, "Signature":"SSSDDDDD"}, function(res){
+         
+         // TODO VALIDATE SERVER!!
+         
+         var bobDHpublicKey = res.DHPK
+         var SHAREDSecret = alice.computeSecret(bobDHpublicKey,'hex','hex');
+         console.log("SHARED SECRET: " + SHAREDSecret)
      
      })
         
@@ -82,9 +90,3 @@ function HTTP_POST(postData, callback) {
 
 }
 
-
-//var bob = crypto.createDiffieHellman(prime,'hex');
-//bob.generateKeys('hex');
-//var bobPub = bob.getPublicKey();
-// 
-//var bobAliceSecret = bob.computeSecret(alicePub,null, 'hex');
