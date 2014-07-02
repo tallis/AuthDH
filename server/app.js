@@ -15,15 +15,17 @@ var decoder = new StringDecoder('utf8');
 
 
 // Variables definitions
-var PRIVATE_KEY =  fs.readFileSync(__dirname + "/keys/privateKey.pem");
-var PUBLIC_KEY =  fs.readFileSync(__dirname + "/keys/publicKey.pem");
+
+var DH_PRIVATE_KEY =  decoder.write(fs.readFileSync(__dirname + "/keys/DHPrivateKey.key"));
+var RSA_PRIVATE_KEY =  decoder.write(fs.readFileSync(__dirname + "/keys/privateKey.pem"));
+var RSA_PUBLIC_KEY =  decoder.write(fs.readFileSync(__dirname + "/keys/publicKey.pem"));
 var SHARED_PRIME = decoder.write(fs.readFileSync(__dirname + "/keys/primesecret.key"));
 
 // Extracting Private Key from .pem
-//PRIVATE_KEY = PRIVATE_KEY.replace("-----BEGIN RSA PRIVATE KEY-----","")
-//PRIVATE_KEY = PRIVATE_KEY.replace("-----END RSA PRIVATE KEY-----","")
-//PRIVATE_KEY = PRIVATE_KEY.replace(/(\r\n|\n|\r)/gm, '')
-//console.log(PRIVATE_KEY)
+RSA_PRIVATE_KEY = RSA_PRIVATE_KEY.replace("-----BEGIN RSA PRIVATE KEY-----","")
+RSA_PRIVATE_KEY = RSA_PRIVATE_KEY.replace("-----END RSA PRIVATE KEY-----","")
+RSA_PRIVATE_KEY = RSA_PRIVATE_KEY.replace(/(\r\n|\n|\r)/gm, '')
+console.log("RSA Private Key: " + RSA_PRIVATE_KEY)
 
 
 fs.readFile('keys/secrets.json', 'utf8', function (err, data) {
@@ -59,21 +61,16 @@ app.post('/auth', function (req, res) {
     console.log("Auth Received. Performing Auth-DH")
     var aliceID = req.body._id
     var aliceDHPublicKey = req.body.DHPK
-    var bob = crypto.createDiffieHellman(SHARED_PRIME, 'hex');
-    console.log("PRIVATE 1: " + PRIVATE_KEY)
- //   bob.setPrivateKey(PRIVATE_KEY)
- 
-    bob.generateKeys('hex');
-    var bobDHPublicKey = bob.getPublicKey('hex');
-    console.log("PRIVATE: " + bob.getPrivateKey('hex'))
+   
+    //var bob = crypto.createDiffieHellman(SHARED_PRIME, 'hex');
+  
 
-    console.log("Size Default: " + Buffer.byteLength(bob.getPrivateKey('hex'), 'utf8') )
-    console.log("Size RSA: " + Buffer.byteLength(PRIVATE_KEY, 'utf8'))
+
     // Doing my own.
-//    var bobDHPublicKey = DH_GEN_DHPK(SHARED_PRIME, PRIVATE_KEY)
-//    console.log(bobDHPublicKey)
-//    var SESSION_KEY = DH_GEN_SK(SHARED_PRIME, PRIVATE_KEY, aliceDHPublicKey)
-//    console.log("SHARED SECRET: " + SESSION_KEY)
+    var bobDHPublicKey = DH_GEN_DHPK(SHARED_PRIME, DH_PRIVATE_KEY)
+    console.log("Received Public key: " + bobDHPublicKey)
+    var SESSION_KEY = DH_GEN_SK(SHARED_PRIME, DH_PRIVATE_KEY, aliceDHPublicKey)
+    console.log("SHARED SECRET: " + SESSION_KEY)
     
     
     res.send(JSON.stringify({
@@ -90,19 +87,20 @@ app.post('/auth', function (req, res) {
 
 
 // Generates Public DH Key 
-function DH_GEN_DHPK(SHARED_PRIME, PRIVATE_KEY)
+function DH_GEN_DHPK(SHARED_PRIME, DH_PRIVATE_KEY)
 {
+    console.log("DH PRIVATE KEY LEN: " + DH_PRIVATE_KEY.length)
   var p = SHARED_PRIME 
   var g = BigInt.str2bigInt("2", 10, 80);       
-  var a = PRIVATE_KEY
+  var a = DH_PRIVATE_KEY
 
   return DHPK = BigInt.powMod(g,a,p);
 }
 
 // Calculate Session Key based on DHPK
-function DH_GEN_SK(SHARED_PRIME,PRIVATE_KEY,DHPK){
+function DH_GEN_SK(SHARED_PRIME,DH_PRIVATE_KEY,DHPK){
     var p = SHARED_PRIME;
-    var a = PRIVATE_KEY
+    var a = DH_PRIVATE_KEY
     var SK = BigInt.powMod(B, a, p);
     return SK
 
