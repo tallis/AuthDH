@@ -9,9 +9,14 @@ var serverURL = 'localhost'
 
 // Variables definitions
 var alice
-var PRIVATE_KEY = fs.readFileSync(__dirname + "/keys/privateKey.pem");
-var SHARED_PRIME = fs.readFileSync(__dirname + "/keys/primesecret.key");
+var StringDecoder = require('string_decoder').StringDecoder;
+var decoder = new StringDecoder('utf8');
 
+
+// Variables definitions
+var PRIVATE_KEY =  decoder.write(fs.readFileSync(__dirname + "/keys/privateKey.pem"));
+var PUBLIC_KEY =  decoder.write(fs.readFileSync(__dirname + "/keys/publicKey.pem"));
+var SHARED_PRIME = decoder.write(fs.readFileSync(__dirname + "/keys/primesecret.key"));
 var _id = ''
 var UUID = ''
 
@@ -26,12 +31,12 @@ AuthDH(SHARED_PRIME, 'localhost')
 
 // ALICE                                               
 function AuthDH(sharedPrime) {
-    console.log("SharedPrime: " + sharedPrime)
-    alice = crypto.createDiffieHellman('a2328aa5fb2af7b16b80142fc0771bebd7f8aceb106d2adab4219be36729a5b005d3d1268417416c4834f22862cb7a21ea2397f1de743015bf1294a8163d57d3', 'hex');
+    alice = crypto.createDiffieHellman(SHARED_PRIME, 'hex');
+    // set privateKey
     alice.generateKeys('hex');
     var aliceDHPublicKey = alice.getPublicKey('hex');
     
-    // cipher UUID with private key
+   //createSignature();
    
      HTTP_POST({"_id":_id,"DHPK":aliceDHPublicKey, "Signature":"SSSDDDDD"}, function(res){
          
@@ -42,7 +47,12 @@ function AuthDH(sharedPrime) {
          console.log("SHARED SECRET: " + SHAREDSecret)
      
      })
-        
+}
+
+function createSignature(){
+        var key = ursa.createPublicKey(PUBLIC_KEY);
+        var encoded = key.privateEncrypt(UUID, "utf8", "hex");
+    
 }
 
 
