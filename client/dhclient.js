@@ -4,9 +4,7 @@ var fs = require('fs')
 var http = require('http')
 var ursa = require('ursa')
 var moment = require('moment')
-
-// Configuration variables
-var serverURL = 'localhost'
+var assert = require('assert')
 
 // Variables definitions
 var alice
@@ -14,42 +12,30 @@ var StringDecoder = require('string_decoder').StringDecoder;
 var decoder = new StringDecoder('utf8');
 var rbytes = require('rbytes');
 
-var nounce = rbytes.randomBytes(16);
-
-
 // Variables definitions
-
 var DH_PRIVATE_KEY = decoder.write(fs.readFileSync(__dirname + "/keys/DHPrivateKey.key"));
-var RSA_PRIVATE_KEY = fs.readFileSync(__dirname + "/keys/privateKey.pem");
-var RSA_PUBLIC_KEY = decoder.write(fs.readFileSync(__dirname + "/keys/publicKey.pem"));
-var SERVER_PUBLIC_KEY = decoder.write(fs.readFileSync(__dirname + "/keys/serverPubKey.pub"));
 var SHARED_PRIME = decoder.write(fs.readFileSync(__dirname + "/keys/primesecret.key"));
-var _id = ''
-var UUID = '0c636d769725c21f030d6d41620f8fce15469aaaa4b622d66512343f3a25176d'
+var RSA_PRIVATE_KEY = fs.readFileSync(__dirname + "/keys/privateKey.pem");
+var SERVER_PUBLIC_KEY = decoder.write(fs.readFileSync(__dirname + "/keys/serverPubKey.pub"));
 
-fs.readFile('keys/secrets.json', 'utf8', function (err, data) {
-    if (err) {
-        console.log("ERROR!")
-        return console.log(err);
-    }
-    console.log("INSIDE FILE")
-    data = JSON.parse(data)
-    _id = data._id
-    UUID = data.UUID
-});
+// Configuration variables
+var serverURL = 'localhost'
+var _id = 'alice'
+
 
 AuthDH(SHARED_PRIME, 'localhost')
-
-// ALICE                                               
 
 function AuthDH(sharedPrime) {
     alice = crypto.createDiffieHellman(SHARED_PRIME, 'hex');
     alice.setPrivateKey(DH_PRIVATE_KEY, 'hex')
-
     alice.generateKeys('hex');
+
     var aliceDHPublicKey = alice.getPublicKey('hex');
 
-    var signature = createSignature();
+    var nounce = rbytes.randomBytes(16);
+    var TS = moment().format("YYYY-MM-DD HH:mm:ss");
+
+    var signature = createSignature(nounce + "/" + TS + "/" + _id);
 
     HTTP_POST({
         "_id": _id,
@@ -57,33 +43,41 @@ function AuthDH(sharedPrime) {
         "Signature": signature
     }, function (res) {
 
-        // TODO VALIDATE SERVER!!
 
-        var bobDHpublicKey = res.DHPK
+        var SHARED_SECRET = alice.computeSecret(res.DHPK, 'hex', 'hex');
 
-        console.log(res)
-        var SHAREDSecret = alice.computeSecret(bobDHpublicKey, 'hex', 'hex');
-        console.log("SHARED SECRET: " + SHAREDSecret)
+        var receivedNounce = validateSignature(res.Signature)
 
+        console.log("SENT NOUNCE: " + nounce)
+        console.log("SHARED SECRET: " + SHARED_SECRET)
+        console.log("RECEIVED NOUNCE: " + receivedNounce)
+
+        try {
+            assert.equal(nounce, receivedNounce)
+            console.log("Node is formally authenticated")
+        } catch (error) {
+            if (error == "AssertionError") {
+                console.log("Not Authenticated")
+            }
+        }
     })
 }
 
-function createSignature() {
-    var RSA = ''
-    RSA = ursa.createPublicKey(SERVER_PUBLIC_KEY);
-
-    var TS = moment().format("YYYY-MM-DD HH:mm:ss")
-
-    console.log("Nounce: " + nounce)
-    console.log("TS: " + TS)
+function createSignature(payload) {
 
     // ciphering with server public key
-    var encoded = RSA.encrypt(nounce + TS, 'utf8', 'hex')
-    console.log("Encoded with public key: " + encoded)
-    console.log("Encoded with public key (Length): " + encoded.length)
-
+    var RSA = ursa.createPublicKey(SERVER_PUBLIC_KEY);
+    var encoded = RSA.encrypt(payload, 'utf8', 'hex')
     return encoded
+}
 
+function validateSignature(signature) {
+
+    RSA = ursa.createPrivateKey(RSA_PRIVATE_KEY);
+    var decoded = RSA.decrypt(signature, 'hex')
+    decoded = decoder.write(decoded)
+
+    return decoded
 }
 
 
@@ -123,7 +117,6 @@ function HTTP_POST(postData, callback) {
     });
 
     req.on('error', function (e) {
-        // TODO: handle error.
         console.log("ERR: " + e)
     });
     req.write(postData);
