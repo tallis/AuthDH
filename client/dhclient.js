@@ -3,6 +3,7 @@ var crypto = require("crypto");
 var fs = require('fs')
 var http = require('http')
 var ursa = require('ursa')
+var moment = require('moment')
 
 // Configuration variables
 var serverURL = 'localhost'
@@ -11,17 +12,27 @@ var serverURL = 'localhost'
 var alice
 var StringDecoder = require('string_decoder').StringDecoder;
 var decoder = new StringDecoder('utf8');
+var rbytes = require('rbytes');
+
+var nounce = rbytes.randomBytes(16);
 
 
 // Variables definitions
-var PRIVATE_KEY =  decoder.write(fs.readFileSync(__dirname + "/keys/privateKey.pem"));
-var PUBLIC_KEY =  decoder.write(fs.readFileSync(__dirname + "/keys/publicKey.pem"));
+
+var DH_PRIVATE_KEY = decoder.write(fs.readFileSync(__dirname + "/keys/DHPrivateKey.key"));
+var RSA_PRIVATE_KEY = fs.readFileSync(__dirname + "/keys/privateKey.pem");
+var RSA_PUBLIC_KEY = decoder.write(fs.readFileSync(__dirname + "/keys/publicKey.pem"));
+var SERVER_PUBLIC_KEY = decoder.write(fs.readFileSync(__dirname + "/keys/serverPubKey.pub"));
 var SHARED_PRIME = decoder.write(fs.readFileSync(__dirname + "/keys/primesecret.key"));
 var _id = ''
-var UUID = ''
+var UUID = '0c636d769725c21f030d6d41620f8fce15469aaaa4b622d66512343f3a25176d'
 
 fs.readFile('keys/secrets.json', 'utf8', function (err, data) {
-    if (err) { return console.log(err);}
+    if (err) {
+        console.log("ERROR!")
+        return console.log(err);
+    }
+    console.log("INSIDE FILE")
     data = JSON.parse(data)
     _id = data._id
     UUID = data.UUID
@@ -30,35 +41,55 @@ fs.readFile('keys/secrets.json', 'utf8', function (err, data) {
 AuthDH(SHARED_PRIME, 'localhost')
 
 // ALICE                                               
+
 function AuthDH(sharedPrime) {
     alice = crypto.createDiffieHellman(SHARED_PRIME, 'hex');
-    // set privateKey
+    alice.setPrivateKey(DH_PRIVATE_KEY, 'hex')
+
     alice.generateKeys('hex');
     var aliceDHPublicKey = alice.getPublicKey('hex');
-    
-   //createSignature();
-   
-     HTTP_POST({"_id":_id,"DHPK":aliceDHPublicKey, "Signature":"SSSDDDDD"}, function(res){
-         
-         // TODO VALIDATE SERVER!!
-         
-         var bobDHpublicKey = res.DHPK
-         var SHAREDSecret = alice.computeSecret(bobDHpublicKey,'hex','hex');
-         console.log("SHARED SECRET: " + SHAREDSecret)
-     
-     })
+
+    var signature = createSignature();
+
+    HTTP_POST({
+        "_id": _id,
+        "DHPK": aliceDHPublicKey,
+        "Signature": signature
+    }, function (res) {
+
+        // TODO VALIDATE SERVER!!
+
+        var bobDHpublicKey = res.DHPK
+
+        console.log(res)
+        var SHAREDSecret = alice.computeSecret(bobDHpublicKey, 'hex', 'hex');
+        console.log("SHARED SECRET: " + SHAREDSecret)
+
+    })
 }
 
-function createSignature(){
-        var key = ursa.createPublicKey(PUBLIC_KEY);
-        var encoded = key.privateEncrypt(UUID, "utf8", "hex");
-    
+function createSignature() {
+    var RSA = ''
+    RSA = ursa.createPublicKey(SERVER_PUBLIC_KEY);
+
+    var TS = moment().format("YYYY-MM-DD HH:mm:ss")
+
+    console.log("Nounce: " + nounce)
+    console.log("TS: " + TS)
+
+    // ciphering with server public key
+    var encoded = RSA.encrypt(nounce + TS, 'utf8', 'hex')
+    console.log("Encoded with public key: " + encoded)
+    console.log("Encoded with public key (Length): " + encoded.length)
+
+    return encoded
+
 }
 
 
 function HTTP_POST(postData, callback) {
     postData = JSON.stringify(postData)
-    
+
     var headers = {
         'Content-Type': 'application/json',
         'Content-Length': postData.length
@@ -86,8 +117,8 @@ function HTTP_POST(postData, callback) {
         res.on('end', function () {
             console.log(responseString)
             callback(JSON.parse(responseString));
-            
-            
+
+
         });
     });
 
@@ -99,4 +130,3 @@ function HTTP_POST(postData, callback) {
     req.end();
 
 }
-

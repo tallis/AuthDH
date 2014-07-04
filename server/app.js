@@ -4,45 +4,39 @@ var app = express();
 var server = require('http').createServer(app);
 var fs = require('fs')
 var crypto = require('crypto')
-
-var BigInt = require('./libraries/BigInt');
+var ursa = require('ursa')
 
 // Configuration variables
 var serverURL = 'localhost'
 
 var StringDecoder = require('string_decoder').StringDecoder;
 var decoder = new StringDecoder('utf8');
+var rbytes = require('rbytes');
 
+var moment = require('moment')
 
 // Variables definitions
 
-var DH_PRIVATE_KEY =  decoder.write(fs.readFileSync(__dirname + "/keys/DHPrivateKey.key"));
-var RSA_PRIVATE_KEY =  decoder.write(fs.readFileSync(__dirname + "/keys/privateKey.pem"));
-var RSA_PUBLIC_KEY =  decoder.write(fs.readFileSync(__dirname + "/keys/publicKey.pem"));
+var DH_PRIVATE_KEY = decoder.write(fs.readFileSync(__dirname + "/keys/DHPrivateKey.key"));
+var RSA_PRIVATE_KEY = decoder.write(fs.readFileSync(__dirname + "/keys/privateKey.pem"));
+var RSA_PUBLIC_KEY = decoder.write(fs.readFileSync(__dirname + "/keys/publicKey.pem"));
 var SHARED_PRIME = decoder.write(fs.readFileSync(__dirname + "/keys/primesecret.key"));
 
-// Extracting Private Key from .pem
-RSA_PRIVATE_KEY = RSA_PRIVATE_KEY.replace("-----BEGIN RSA PRIVATE KEY-----","")
-RSA_PRIVATE_KEY = RSA_PRIVATE_KEY.replace("-----END RSA PRIVATE KEY-----","")
-RSA_PRIVATE_KEY = RSA_PRIVATE_KEY.replace(/(\r\n|\n|\r)/gm, '')
-console.log("RSA Private Key: " + RSA_PRIVATE_KEY)
-
+// GLOBAL
+console.log("Setting up DiffieHellman")
+var DIFFIE_HELLMAN = crypto.createDiffieHellman(SHARED_PRIME, 'hex');
+DIFFIE_HELLMAN.setPrivateKey(DH_PRIVATE_KEY, 'hex')
+DIFFIE_HELLMAN.generateKeys('hex');
 
 fs.readFile('keys/secrets.json', 'utf8', function (err, data) {
-    if (err) { return console.log(err);}
+    if (err) {
+        return console.log(err);
+    }
     data = JSON.parse(data)
     _id = data._id
     UUID = data.UUID
 });
 
-
-
-fs.readFile('keys/secrets.json', 'utf8', function (err, data) {
-    if (err) { return console.log(err);}
-    data = JSON.parse(data)
-    var _id = data._id
-    var UUID = data.UUID
-});
 
 // Variables
 var port = 8080
@@ -59,52 +53,73 @@ app.configure(function () {
 
 app.post('/auth', function (req, res) {
     console.log("Auth Received. Performing Auth-DH")
-    var aliceID = req.body._id
-    var aliceDHPublicKey = req.body.DHPK
-   
-    //var bob = crypto.createDiffieHellman(SHARED_PRIME, 'hex');
-  
+    var serverID = req.body._id
+    var clientDHPK = req.body.DHPK
+    var clientSignature = req.body.Signature
+    
+    var carlosSignature = "5ab086200239a621132714336c7990e041073d32b6d8690648b2066e18c55730b39fad1e20ad6369d0b9900e8849f4ccbd718b80d7760f0685fdebf5ac8c1edf3b2df8830a248a94dede6b4763f6a1ba458f0139564eb8da7e3579893d84f415dcf7a33d824b96805513fc7e0561081295c3dc6b3562b864e05d8da60826cbfb"
 
-
-    // Doing my own.
-    var bobDHPublicKey = DH_GEN_DHPK(SHARED_PRIME, DH_PRIVATE_KEY)
-    console.log("Received Public key: " + bobDHPublicKey)
-    var SESSION_KEY = DH_GEN_SK(SHARED_PRIME, DH_PRIVATE_KEY, aliceDHPublicKey)
-    console.log("SHARED SECRET: " + SESSION_KEY)
+    // TODO Calculate Signature
+        
+    var nounce = validateSignature(carlosSignature)
+    
+    var encodedSignature = createSignature(nounce,156)
     
     
     res.send(JSON.stringify({
-        "_id":_id,
-        "DHPK": bobDHPublicKey,
-        "Signature": "SSSDDDDD"
+        "_id": _id,
+        "DHPK": DIFFIE_HELLMAN.getPublicKey('hex'),
+        "Signature":encodedSignature
     }))
 
-//    var SHAREDSecret = bob.computeSecret(aliceDHPublicKey, 'hex', 'hex');
-//    console.log("SHARED SECRET: " + SHAREDSecret)
+    var SHARED_KEY = DIFFIE_HELLMAN.computeSecret(clientDHPK, 'hex', 'hex');
+    console.log("SHARED KEY: " + SHARED_KEY)
+    // store session key.
 
 });
 
 
 
-// Generates Public DH Key 
-function DH_GEN_DHPK(SHARED_PRIME, DH_PRIVATE_KEY)
-{
-    console.log("DH PRIVATE KEY LEN: " + DH_PRIVATE_KEY.length)
-  var p = SHARED_PRIME 
-  var g = BigInt.str2bigInt("2", 10, 80);       
-  var a = DH_PRIVATE_KEY
+function validateSignature(signature) {
+    var RSA = ''
+    PRIVATE_RSA = ursa.createPrivateKey(RSA_PRIVATE_KEY);
+    
+    var decoded = PRIVATE_RSA.decrypt(signature, 'hex')
+    decoded = decoder.write(decoded)
+    decoded = decoded.split("/")
 
-  return DHPK = BigInt.powMod(g,a,p);
+    var nounce = decoded[0]
+    var TS =  decoded[1]
+    var nodeID = decoded[2]
+   
+    console.log("DECODED RSA Nounce: " + nounce)
+    console.log("DECODED RSA Timestamp: " + TS)
+    console.log("DECODED RSA nodeID: " + nodeID)
+    
+    return nounce
 }
 
-// Calculate Session Key based on DHPK
-function DH_GEN_SK(SHARED_PRIME,DH_PRIVATE_KEY,DHPK){
-    var p = SHARED_PRIME;
-    var a = DH_PRIVATE_KEY
-    var SK = BigInt.powMod(B, a, p);
-    return SK
+
+function createSignature(nounce,nodeID) {
+    var TS = moment().format("YYYY-MM-DD HH:mm:ss")
+    
+    var NODE_PUBLIC_KEY = decoder.write(fs.readFileSync(__dirname + "/certificates/"+nodeID+".pub"));
+    
+    var RSA = ''
+    RSA = ursa.createPublicKey(NODE_PUBLIC_KEY);
+
+    console.log("Nounce: " + nounce)
+
+    // ciphering with server public key
+    var encoded = RSA.encrypt(nounce, 'utf8', 'hex')
+    console.log("Encoded with public key: " + encoded)
+    console.log("Encoded with public key (Length): " + encoded.length)
+
+    return encoded
 
 }
+
+
 
 server.listen(app.get('port'), function () {
     console.log('Server started at Port: ' + app.get('port'));
